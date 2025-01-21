@@ -8,7 +8,17 @@ const { CrawledWallet, sequelize} = require('../models');
 const { query } = require('../connection');
 
 async function crawlPortfolio() {
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--mute-audio' //disable audio-related features
+        ]
+    });
     // Helper function for delay
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     try {
@@ -20,7 +30,7 @@ async function crawlPortfolio() {
         )
 
         // Query to fetch addresses where target is 'Y'
-        const sql = 'SELECT address, id FROM Top_Trader WHERE target = ? ORDER BY insert_dt DESC';
+        const sql = 'SELECT address, id FROM Top_Trader WHERE target = ? ORDER BY insert_dt DESC LIMIT 3';
         const traders = await db.query(sql, ['Y']);
 
         const results = [];
