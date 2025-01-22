@@ -7,6 +7,21 @@ puppeteer.use(StealthPlugin());
 const { CrawledWallet, sequelize} = require('../models');
 const { query } = require('../connection');
 
+// const parseValue = (value) => {
+//     if (typeof value !== 'string') return value; // If it's already a number, return it as is
+//
+//     let multiplier = 1;
+//
+//     // Check for multiplier suffixes (K, M, B)
+//     if (value.includes('K')) multiplier = 1000;
+//     if (value.includes('M')) multiplier = 1_000_000;
+//     if (value.includes('B')) multiplier = 1_000_000_000;
+//
+//     // Remove all non-numeric characters except for '-' and '.' for proper parsing
+//     const numericValue = parseFloat(value.replace(/[^0-9.-]/g, ''));
+//
+//     return numericValue * multiplier || 0; // Apply the multiplier and return the result
+// };
 async function crawlPortfolio() {
     const browser = await puppeteer.launch({
         headless: true,
@@ -27,10 +42,10 @@ async function crawlPortfolio() {
         await CrawledWallet.update(
             { show: 'N'},
             { where: {}}
-        )
+        );
 
         // Query to fetch addresses where target is 'Y'
-        const sql = 'SELECT address, id FROM Top_Trader WHERE target = ? ORDER BY insert_dt DESC LIMIT 3';
+        const sql = 'SELECT address, id FROM Top_Trader WHERE `show` = ? ORDER BY insert_dt DESC';
         const traders = await db.query(sql, ['Y']);
 
         const results = [];
@@ -160,69 +175,148 @@ async function crawlTraderData(page, address, userId, buttonsClicked) {
         return { address, total_pnl: 'Error', tokens: [] };
     }
 }
+// async function saveCrawledData(data) {
+//     // Extract `total_pnl` and `total_pnl_rate` from `data.total_pnl`
+//     const pnlMatch = data.total_pnl.match(/([+\-]?\$[\d.,KM]+)\s\(([+\-]?[\d.]+%)\)/);
+//     const totalPnl = pnlMatch ? pnlMatch[1] : null; // e.g., "+$1.2M"
+//     const totalPnlRate = pnlMatch ? pnlMatch[2] : null; // e.g., "+25.82%"
+//
+//     // Update the TopTrader table for the given address
+//     // if (totalPnl !== null && totalPnlRate !== null) {
+//     //     await TopTrader.update(
+//     //         {
+//     //             total_pnl: totalPnl,
+//     //             total_pnl_rate: totalPnlRate,
+//     //         },
+//     //         {
+//     //             where: { address: data.address }, // Match the `address` field
+//     //         }
+//     //     ).catch((err) => {
+//     //         console.error('Error updating TopTrader:', err.message);
+//     //     });
+//     // } else {
+//     //     console.warn('Could not parse total_pnl or total_pnl_rate for TopTrader update.');
+//     // }
+//
+//     // Update the TopTrader table for the given address using a plain SQL query
+//     if (totalPnl !== null && totalPnlRate !== null) {
+//         const sql = `
+//             UPDATE Top_Trader
+//             SET total_pnl = ?, total_pnl_rate = ?
+//             WHERE address = ?
+//         `;
+//
+//         try {
+//             const result = await db.query(sql, [totalPnl, totalPnlRate, data.address]);
+//             console.log(`Updated ${result.affectedRows} row(s) in Top_Trader.`);
+//         } catch (err) {
+//             console.error('Error updating Top_Trader:', err.message);
+//         }
+//     } else {
+//         console.warn('Could not parse total_pnl or total_pnl_rate for Top_Trader update.');
+//     }
+//
+//     // save token data to the CrawledWallet table
+//     for (const token of data.tokens) {
+//         const walletData = {
+//             user_address: data.address,
+//             user_num: data.userId,
+//             symbol: token.token.symbol,
+//             symbol_address: token.token.address,
+//             icon: token.token.icon,
+//             pnl: token.unrealized_profit.amount || '-',
+//             pnl_percentage: token.unrealized_profit.percentage || '-',
+//             upnl: token.realized_profit.amount || '-',
+//             upnl_percentage: token.realized_profit.percentage || '-',
+//             total_pnl: token.total_profit.amount || '-',
+//             total_pnl_percentage: token.total_profit.percentage || '-',
+//             cost: token.purchase.volume || '-',
+//             holding: token.value.balance || '-',
+//             size: token.value.usd || '-',
+//             ratio: token.ratio || '-',
+//             retain: token.retain_time || '-',
+//             purchase_volume: token.purchase.volume || '-',
+//             purchase_avg_cost: token.purchase.avg_cost || '-',
+//             sell_volume: token.sell.volume || '-',
+//             sell_avg_price: token.sell.avg_price || '-',
+//             '30d_buycount': parseInt(token.activity_30d.buy_count, 10) || 0,
+//             '30d_sellcount': parseInt(token.activity_30d.sell_count, 10) || 0,
+//             show: 'Y'
+//         };
+//
+//         // Save to CrawledWallet
+//         // await CrawledWallet.create(walletData).catch((err) => {
+//         //     console.error('Error saving wallet data:', err.message);
+//         // });
+//         // Use upsert to insert or update the row
+//         await CrawledWallet.upsert(walletData, {
+//             conflictFields: ['user_address', 'symbol_address'], // Columns to check for duplicates
+//         }).catch((err) => {
+//             console.error('Error saving/updating wallet data:', err.message);
+//         });
+//     }
+// }
 async function saveCrawledData(data) {
+    // Function to convert formatted strings into numbers
+    const parseValue = (value) => {
+        if (typeof value !== 'string') return value;
+        let multiplier = 1;
+
+        // Remove formatting and determine multiplier
+        if (value.includes('K')) multiplier = 1000;
+        if (value.includes('M')) multiplier = 1_000_000;
+        if (value.includes('B')) multiplier = 1_000_000_000;
+
+        // Remove symbols ($, +, -, %) and convert to a float
+        const numericValue = parseFloat(value.replace(/[^\d.-]/g, ''));
+
+        return numericValue * multiplier || 0;
+    };
+
     // Extract `total_pnl` and `total_pnl_rate` from `data.total_pnl`
     const pnlMatch = data.total_pnl.match(/([+\-]?\$[\d.,KM]+)\s\(([+\-]?[\d.]+%)\)/);
-    const totalPnl = pnlMatch ? pnlMatch[1] : null; // e.g., "+$1.2M"
-    const totalPnlRate = pnlMatch ? pnlMatch[2] : null; // e.g., "+25.82%"
+    const totalPnl = pnlMatch ? parseValue(pnlMatch[1]) : null; // Convert to numeric
+    const totalPnlRate = pnlMatch ? parseValue(pnlMatch[2]) : null; // Convert to numeric
 
-    // Update the TopTrader table for the given address
-    // if (totalPnl !== null && totalPnlRate !== null) {
-    //     await TopTrader.update(
-    //         {
-    //             total_pnl: totalPnl,
-    //             total_pnl_rate: totalPnlRate,
-    //         },
-    //         {
-    //             where: { address: data.address }, // Match the `address` field
-    //         }
-    //     ).catch((err) => {
-    //         console.error('Error updating TopTrader:', err.message);
-    //     });
-    // } else {
-    //     console.warn('Could not parse total_pnl or total_pnl_rate for TopTrader update.');
-    // }
+    // Update the TopTrader table for the given address using a plain SQL query
+    if (totalPnl !== null && totalPnlRate !== null) {
+        const sql = `
+            UPDATE Top_Trader
+            SET total_pnl = ?, total_pnl_rate = ?
+            WHERE address = ?
+        `;
 
-    // save token data to the CrawledWallet table
+        try {
+            const result = await db.query(sql, [totalPnl, totalPnlRate, data.address]);
+            console.log(`Updated ${result.affectedRows} row(s) in Top_Trader.`);
+        } catch (err) {
+            console.error('Error updating Top_Trader:', err.message);
+        }
+    } else {
+        console.warn('Could not parse total_pnl or total_pnl_rate for Top_Trader update.');
+    }
+
+    // Update the User_Wallet table with token data
     for (const token of data.tokens) {
-        const walletData = {
-            user_address: data.address,
-            user_num: data.userId,
-            symbol: token.token.symbol,
-            symbol_address: token.token.address,
-            icon: token.token.icon,
-            pnl: token.unrealized_profit.amount || '-',
-            pnl_percentage: token.unrealized_profit.percentage || '-',
-            upnl: token.realized_profit.amount || '-',
-            upnl_percentage: token.realized_profit.percentage || '-',
-            total_pnl: token.total_profit.amount || '-',
-            total_pnl_percentage: token.total_profit.percentage || '-',
-            cost: token.purchase.volume || '-',
-            holding: token.value.balance || '-',
-            size: token.value.usd || '-',
-            ratio: token.ratio || '-',
-            retain: token.retain_time || '-',
-            purchase_volume: token.purchase.volume || '-',
-            purchase_avg_cost: token.purchase.avg_cost || '-',
-            sell_volume: token.sell.volume || '-',
-            sell_avg_price: token.sell.avg_price || '-',
-            '30d_buycount': parseInt(token.activity_30d.buy_count, 10) || 0,
-            '30d_sellcount': parseInt(token.activity_30d.sell_count, 10) || 0,
-            show: 'Y'
-        };
+        const pnl = parseValue(token.unrealized_profit.amount || '-');
+        const pnlPercentage = parseValue(token.unrealized_profit.percentage || '-');
 
-        // Save to CrawledWallet
-        // await CrawledWallet.create(walletData).catch((err) => {
-        //     console.error('Error saving wallet data:', err.message);
-        // });
-        // Use upsert to insert or update the row
-        await CrawledWallet.upsert(walletData, {
-            conflictFields: ['user_address', 'symbol_address'], // Columns to check for duplicates
-        }).catch((err) => {
-            console.error('Error saving/updating wallet data:', err.message);
-        });
+        // Update only `pnl` and `pnl_percentage` where `user_address` and `symbol_address` match
+        const sql = `
+            UPDATE User_Wallet
+            SET pnl = ?, pnl_percentage = ?
+            WHERE user_address = ? AND symbol_address = ?
+        `;
+
+        try {
+            const result = await db.query(sql, [pnl, pnlPercentage, data.address, token.token.address]);
+            console.log(`Updated ${result.affectedRows} row(s) in User_Wallet for ${data.address} - ${token.token.symbol}.`);
+        } catch (err) {
+            console.error(`Error updating User_Wallet for ${data.address} - ${token.token.symbol}:`, err.message);
+        }
     }
 }
+
 async function setCurrent() {
     await CrawledWallet.update(
         { current: 'N'},
