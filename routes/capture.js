@@ -298,8 +298,8 @@ async function saveCrawledData(data) {
 
     // Update the User_Wallet table with token data
     for (const token of data.tokens) {
-        const pnl = parseValue(token.unrealized_profit.amount || '-');
-        const pnlPercentage = parseValue(token.unrealized_profit.percentage || '-');
+        const pnl = parseValue(token.total_profit.amount || '-');
+        const pnlPercentage = parseValue(token.total_profit.percentage || '-');
 
         // Update only `pnl` and `pnl_percentage` where `user_address` and `symbol_address` match
         const sql = `
