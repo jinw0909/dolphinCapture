@@ -9,6 +9,7 @@ const scheduler = require('./scheduler');
 const indexRouter = require('./routes/index');
 const usersRouter = require('./routes/users');
 const { captureRouter } = require('./routes/capture');
+const { gptRouter } = require('./routes/gpt');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
 app.use('/capture', captureRouter);
+app.use('/gpt', gptRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

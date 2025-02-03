@@ -121,6 +121,7 @@ async function crawlTraderData(page, address, userId, buttonsClicked) {
             }
             return null;
         });
+        console.log("totalPnl: ", totalPnl);
 
         // Step 4: Extract token data from the second table
         const tokenData = await secondChildDiv.evaluate((secondDiv) => {
